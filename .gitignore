@@ -1,0 +1,9 @@
+# Ignore build and temporary files
+*.o
+*.out
+*.exe
+*.log
+*.zip
+build/
+bin/
+
