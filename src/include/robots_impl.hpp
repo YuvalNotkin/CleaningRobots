@@ -3,7 +3,8 @@
 
 class DetectorRobot : public RobotBase {
 public:
-    using RobotBase::RobotBase;
+    DetectorRobot(RobotName name, Position start = {})
+        : RobotBase(std::move(name), RobotType::DETECTOR, start) {}
     void moveTo(Position) override;
     void startWork(const std::string&) override;
     void stop() override;
@@ -11,7 +12,8 @@ public:
 
 class VacuumRobot : public RobotBase {
 public:
-    using RobotBase::RobotBase;
+    VacuumRobot(RobotName name, Position start = {})
+        : RobotBase(std::move(name), RobotType::VACUUM, start) {}
     void moveTo(Position) override;
     void startWork(const std::string&) override;
     void stop() override;
@@ -19,7 +21,8 @@ public:
 
 class WasherRobot : public RobotBase {
 public:
-    using RobotBase::RobotBase;
+    WasherRobot(RobotName name, Position start = {})
+        : RobotBase(std::move(name), RobotType::WASHER, start) {}
     void moveTo(Position) override;
     void startWork(const std::string&) override;
     void stop() override;

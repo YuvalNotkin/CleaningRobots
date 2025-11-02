@@ -2,6 +2,7 @@
 #include <string>
 
 using RobotId = int;
+using RobotName = std::string;
 
 struct Position {
     int x{0}, y{0};

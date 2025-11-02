@@ -1,9 +1,17 @@
-# Ignore build and temporary files
-*.o
-*.out
-*.exe
-*.log
-*.zip
+# build artifacts
 build/
 bin/
+*.o
+*.obj
+*.exe
+*.log
+*.docx
+
+# IDE/editor
+.vscode/
+.idea/
+*.code-workspace
+
+# misc
+.DS_Store
 
