@@ -1,9 +1,10 @@
 #pragma once
 #include <vector>
-#include "robot.hpp"   // Position
+#include "robot.hpp" 
 
-// Plain data holder created and initialized only in main().
 struct BootstrapFeed {
-    std::vector<Position> dirtSpots; // initial targets for the simulation
+    int gridWidth{0};
+    int gridHeight{0};
+    std::vector<Position> dirtSpots;
 };
     

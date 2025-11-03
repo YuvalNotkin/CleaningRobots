@@ -1,59 +1,53 @@
 #include "include/planner.hpp"
-#include <iostream>  // for simple logs
 
-// Pick the first non-empty queue in fixed priority order: DETECT -> VACUUM -> WASH.
-std::pair<std::queue<Job>*, JobStage> Planner::pickQueueByPriority() {
-    if (!qDetect_.empty()) return { &qDetect_, JobStage::DETECT };
-    if (!qVacuum_.empty()) return { &qVacuum_, JobStage::VACUUM };
-    if (!qWash_.empty())   return { &qWash_,   JobStage::WASH   };
-    return { nullptr, JobStage::DONE };
+#include <algorithm>
+#include <cstddef>
+
+void Planner::configureGrid(int width, int height) {
+    width_ = width;
+    height_ = height;
 }
 
-bool Planner::step(RobotRegistry& registry) {
-    auto [q, stage] = pickQueueByPriority();
-    if (!q) return false; // nothing to do
+std::vector<std::vector<Position>> Planner::buildScanPlans(std::size_t detectorCount) const {
+    if (!isConfigured() || detectorCount == 0) {
+        return {};
+    }
 
-    // Take one job from the chosen queue
-    Job job = q->front();
-    q->pop();
+    std::vector<PatternGenerator> generators = {
+        &Planner::rowWisePattern,
+        &Planner::columnWisePattern
+    };
 
-    // Decide the required robot type for this stage
-    RobotType need = RobotType::DETECTOR;
-    const char* workKind = "DETECT";
-    if (stage == JobStage::VACUUM) { need = RobotType::VACUUM; workKind = "VACUUM"; }
-    else if (stage == JobStage::WASH) { need = RobotType::WASHER; workKind = "WASH"; }
+    std::vector<std::vector<Position>> plans;
+    plans.reserve(detectorCount);
 
-    // Try local search first (small radius), then a wide fallback.
-    auto pick = registry.findNearest(need, job.target, /*maxRadiusCells=*/2);
-    if (!pick || pick->state() != RobotState::IDLE) {
-        pick = registry.findNearest(need, job.target, /*fallback wide*/ 1000000);
-        if (!pick || pick->state() != RobotState::IDLE) {
-            // No suitable robot right now -> requeue the job and report no progress.
-            // This keeps the code simple and avoids busy-wait; next loop will try again.
-            if (stage == JobStage::DETECT) qDetect_.push(job);
-            else if (stage == JobStage::VACUUM) qVacuum_.push(job);
-            else qWash_.push(job);
-            return false;
+    for (std::size_t idx = 0; idx < detectorCount; ++idx) {
+        PatternGenerator generator = generators[idx % generators.size()];
+        std::vector<Position> pattern = (this->*generator)();
+        plans.push_back(std::move(pattern));
+    }
+
+    return plans;
+}
+
+std::vector<Position> Planner::rowWisePattern() const {
+    std::vector<Position> path;
+    path.reserve(static_cast<std::size_t>(width_) * height_);
+    for (int y = 0; y < height_; ++y) {
+        for (int x = 0; x < width_; ++x) {
+            path.push_back(Position{x, y});
         }
     }
+    return path;
+}
 
-    // Synchronous "do the work" sequence (no sleeps, no threads, just simulation):
-    pick->moveTo(job.target);
-    registry.updatePosition(pick->id(), job.target);
-
-    pick->startWork(workKind);
-    // In this MVP we consider work done immediately to keep the flow simple.
-    pick->stop();
-
-    // Promote job to the next stage or finish
-    JobStage next = nextStage(stage);
-    if (next == JobStage::DONE) {
-        std::cout << "[Planner] Job at (" << job.target.x << "," << job.target.y << ") DONE\n";
-    } else {
-        job.stage = next;
-        if (next == JobStage::VACUUM) qVacuum_.push(job);
-        else                          qWash_.push(job);
+std::vector<Position> Planner::columnWisePattern() const {
+    std::vector<Position> path;
+    path.reserve(static_cast<std::size_t>(width_) * height_);
+    for (int x = 0; x < width_; ++x) {
+        for (int y = 0; y < height_; ++y) {
+            path.push_back(Position{x, y});
+        }
     }
-
-    return true; // made progress
+    return path;
 }

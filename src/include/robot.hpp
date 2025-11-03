@@ -25,7 +25,7 @@ protected:
     Position pos_{};
 
 public:
-    explicit RobotBase(RobotName name, RobotType type, Position start = {})
+    RobotBase(RobotName name, RobotType type, Position start = {})
         : id_(IdGenerator::next()), name_(std::move(name)), type_(type), pos_(start) {}
 
     RobotId id() const override { return id_; }

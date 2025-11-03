@@ -1,5 +1,23 @@
 #include <iostream>
+#include <cstdlib>
+#include <limits>
+#include <set>
+#include <utility>
+#include <vector>
 #include "include/control_unit.hpp"
+
+namespace {
+using CellKey = std::pair<int, int>;
+CellKey cellKey(Position p) {
+    return {p.x, p.y};
+}
+bool samePosition(Position a, Position b) {
+    return a.x == b.x && a.y == b.y;
+}
+int distance(Position a, Position b) {
+    return std::abs(a.x - b.x) + std::abs(a.y - b.y);
+}
+}
 
 // ---- simple helpers ----
 void ControlUnit::moveRobot(RobotId id, Position dst) {
@@ -30,14 +48,254 @@ void ControlUnit::printRobots() const {
     printVec(reg_.getByType(RobotType::WASHER));
 }
 
-// ---- simulation flow ----
+///////////////////////////////////////// MAIN SIMULATION ////////////////////////////////////////////////////////
+
+// Creating dirt
 void ControlUnit::seedFrom(const BootstrapFeed& feed) {
-    for (const auto& p : feed.dirtSpots) {
-        planner_.enqueueDetect(p);
+    if (!reg_.initializeGrid(feed.gridWidth, feed.gridHeight, feed.dirtSpots)) {
+        std::cerr << "[CU] failed to initialize grid; aborting scenario.\n";
+        return;
+    }
+    planner_.configureGrid(feed.gridWidth, feed.gridHeight);
+}
+
+
+// Running
+void ControlUnit::run() {
+
+    //////////////////// Initializing part:
+
+    if (!planner_.isConfigured()) {
+        std::cerr << "[CU] planner not configured. Did you call seedFrom()?\n";
+        return;
+    }
+
+    vacuumQueue_ = std::queue<Position>{};
+    washerQueue_ = std::queue<Position>{};
+    queuedForVacuum_.clear();
+    queuedForWasher_.clear();
+
+    // assinning plan to each Detector
+    auto detectorsVec = reg_.getByType(RobotType::DETECTOR);
+    if (detectorsVec.empty()) {
+        std::cerr << "[CU] no detector robots available\n";
+        return;
+    }
+    auto plans = planner_.buildScanPlans(detectorsVec.size());
+    if (plans.size() != detectorsVec.size()) {
+        std::cerr << "[CU] unable to build scan plans\n";
+        return;
+    }
+
+    // bookkeeping block that packages each detector state in one "detectors" vector:
+    struct DetectorState {
+        std::shared_ptr<IRobot> robot;
+        std::vector<Position>   path;
+        std::size_t             nextIndex{0};
+        bool                    started{false};
+        bool                    finished{false};
+    };
+    std::vector<DetectorState> detectors;
+    detectors.reserve(detectorsVec.size());
+    for (std::size_t idx = 0; idx < detectorsVec.size(); ++idx) {
+        detectors.push_back(DetectorState{
+            detectorsVec[idx],
+            plans[idx],
+            0,
+            false,
+            false
+        });
+    }
+
+    const Position start = {0, 0};
+
+    //////////////////// Advancing each Detector one step according to the assigned path (Lambda):
+
+    auto processDetectors = [&]() -> bool {
+        bool madeProgress = false;
+
+        for (std::size_t i = 0; i < detectors.size(); ++i) {
+            DetectorState& state = detectors[i];
+            if (!state.started) {
+                std::cout << "[Detector#" << state.robot->name() << "] start scan\n";
+                state.started = true;
+                madeProgress = true;
+            }
+
+            // if finished already
+            if (state.finished) {
+                continue;
+            }
+
+            // if Path ended
+            if (state.nextIndex >= state.path.size()) {
+                if (!samePosition(state.robot->position(), start)) {
+                    moveRobot(state.robot->id(), start);
+                    madeProgress = true;
+                }
+                state.finished = true;
+                continue;
+            }
+
+            // The advancing
+            Position cell = state.path[state.nextIndex++];
+            madeProgress = true;
+
+            // Move to position
+            if (!samePosition(state.robot->position(), cell)) {
+                moveRobot(state.robot->id(), cell);
+            }
+
+            // Call vacuum robot if needed
+            if (reg_.hasDirt(cell)) {
+                if (enqueueVacuumTask(cell)) {
+                    std::cout << "[Detector#" << state.robot->name()
+                              << "] detected dirt at (" << cell.x << "," << cell.y << ")\n";
+                }
+            }
+        }
+
+        return madeProgress;
+    };
+
+    //////////////////// The Main Loop:
+
+    while (true) {
+        bool detectorsProgress = processDetectors();
+        bool vacuumProgress = processVacuumQueue();
+        bool washerProgress = processWasherQueue();
+
+        bool allDetectorsFinished = true;
+        for (const auto& state : detectors) {
+            if (!state.finished) {
+                allDetectorsFinished = false;
+                break;
+            }
+        }
+
+        if (allDetectorsFinished && vacuumQueue_.empty() && washerQueue_.empty()) {
+            break;
+        }
+
+        if (!detectorsProgress && !vacuumProgress && !washerProgress) {
+            std::cerr << "[CU] run loop made no progress; aborting.\n";
+            break;
+        }
     }
 }
-void ControlUnit::runUntilIdle() {
-    while (planner_.hasWork()) {
-        (void)planner_.step(reg_);
+
+bool ControlUnit::processVacuumQueue() {
+    bool processed = false;
+
+    while (!vacuumQueue_.empty()) {
+        Position target = vacuumQueue_.front();
+        // Check if Dirty
+        if (!reg_.hasDirt(target)) {
+            queuedForVacuum_.erase(cellKey(target));
+            vacuumQueue_.pop();
+            continue;
+        }
+
+        // Find the right Robot
+        auto robot = findNearestIdleRobot(RobotType::VACUUM, target);
+        if (!robot) {
+            break;
+        }
+
+        vacuumQueue_.pop();
+        queuedForVacuum_.erase(cellKey(target));
+
+        // Move to target
+        if (!samePosition(robot->position(), target)) {
+            moveRobot(robot->id(), target);
+        }
+
+        // Vacuum
+        std::cout << "[Vacuum#" << robot->name() << "] vacuuming ("
+                  << target.x << "," << target.y << ")\n";
+        startRobotWork(robot->id(), "VACUUM");
+        stopRobot(robot->id());
+
+        // Add to wash list 
+        if (reg_.markVacuumed(target)) {
+            if (queuedForWasher_.insert(cellKey(target)).second) {
+                washerQueue_.push(target);
+            }
+        }
+
+        processed = true;
     }
+
+    return processed;
 }
+
+bool ControlUnit::processWasherQueue() {
+    bool processed = false;
+
+    while (!washerQueue_.empty()) {
+        Position target = washerQueue_.front();
+        // Check if Dirty
+        if (!reg_.needsWash(target)) {
+            queuedForWasher_.erase(cellKey(target));
+            washerQueue_.pop();
+            continue;
+        }
+
+        // Find the right Robot
+        auto robot = findNearestIdleRobot(RobotType::WASHER, target);
+        if (!robot) {
+            break;
+        }
+
+        washerQueue_.pop();
+        queuedForWasher_.erase(cellKey(target));
+
+        // Move to target
+        if (!samePosition(robot->position(), target)) {
+            moveRobot(robot->id(), target);
+        }
+
+        // Wash
+        std::cout << "[Washer#" << robot->name() << "] washing ("
+                  << target.x << "," << target.y << ")\n";
+        startRobotWork(robot->id(), "WASH");
+        stopRobot(robot->id());
+
+        reg_.markWashed(target);
+        processed = true;
+    }
+
+    return processed;
+}
+
+// Add to vacuum list 
+bool ControlUnit::enqueueVacuumTask(Position pos) {
+    if (!reg_.hasDirt(pos)) {
+        return false;
+    }
+    if (queuedForVacuum_.insert(cellKey(pos)).second) {
+        vacuumQueue_.push(pos);
+        return true;
+    }
+    return false;
+}
+
+std::shared_ptr<IRobot> ControlUnit::findNearestIdleRobot(RobotType type, Position target) const {
+    auto robots = reg_.getByType(type);
+    std::shared_ptr<IRobot> best;
+    int bestDistance = std::numeric_limits<int>::max();
+
+    for (const auto& robot : robots) {
+        if (robot->state() != RobotState::IDLE) {
+            continue;
+        }
+        const int dist = distance(robot->position(), target);
+        if (dist < bestDistance) {
+            bestDistance = dist;
+            best = robot;
+        }
+    }
+
+    return best;
+}
+

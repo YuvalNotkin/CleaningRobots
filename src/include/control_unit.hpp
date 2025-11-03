@@ -1,25 +1,33 @@
 #pragma once
+#include <queue>
+#include <set>
+#include <utility>
 #include <string>
 #include "registry.hpp"
 #include "planner.hpp"
 #include "bootstrap.hpp"
 
-// Orchestrator over Registry + Planner
 class ControlUnit {
 public:
     explicit ControlUnit(RobotRegistry& reg) : reg_(reg) {}
 
-    // --- Simple helpers (optional, used by tests/manual control) ---
     void moveRobot(RobotId id, Position dst);
     void startRobotWork(RobotId id, const std::string& kind);
     void stopRobot(RobotId id);
     void printRobots() const;
-
-    // --- Simulation flow (what main() uses now) ---
-    void seedFrom(const BootstrapFeed& feed); // push DETECT jobs to planner
-    void runUntilIdle();                      // while(planner.hasWork()) step()
+    void seedFrom(const BootstrapFeed& feed);
+    void run();
 
 private:
+    bool processVacuumQueue();
+    bool processWasherQueue();
+    bool enqueueVacuumTask(Position pos);
+    std::shared_ptr<IRobot> findNearestIdleRobot(RobotType type, Position target) const;
+
     RobotRegistry& reg_;
     Planner        planner_;
+    std::queue<Position> vacuumQueue_;
+    std::queue<Position> washerQueue_;
+    std::set<std::pair<int,int>> queuedForVacuum_;
+    std::set<std::pair<int,int>> queuedForWasher_;
 };
