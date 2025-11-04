@@ -1,6 +1,6 @@
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -I./include
-SRC = $(wildcard src/*.cpp)
+CXXFLAGS = -std=c++17 -Wall -Isrc
+SRC = $(shell find src -name '*.cpp')
 BIN = build/app
 
 .PHONY: all clean run

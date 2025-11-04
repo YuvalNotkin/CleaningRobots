@@ -1,11 +1,11 @@
 #include <memory>
 #include <iostream>
-#include "include/robot.hpp"
-#include "include/robots_impl.hpp"  // your concrete DetectorRobot, VacuumRobot, WasherRobot
-#include "include/registry.hpp"
-#include "include/control_unit.hpp"
-#include "include/bootstrap.hpp"
-#include "include/test_scenarios.hpp"
+#include "robot/robot.hpp"
+#include "robot/robots_impl.hpp"  // your concrete DetectorRobot, VacuumRobot, WasherRobot
+#include "registry/registry.hpp"
+#include "control_unit/control_unit.hpp"
+#include "common/bootstrap.hpp"
+#include "test_scenarios/test_scenarios.hpp"
 
 int main() {
     run_all_scenarios();

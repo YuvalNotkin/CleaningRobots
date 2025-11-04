@@ -4,7 +4,7 @@
 #include <set>
 #include <utility>
 #include <vector>
-#include "include/control_unit.hpp"
+#include "control_unit/control_unit.hpp"
 
 namespace {
 using CellKey = std::pair<int, int>;
@@ -24,6 +24,12 @@ void ControlUnit::moveRobot(RobotId id, Position dst) {
     auto r = reg_.getById(id);
     if (!r) { std::cerr << "[CU] robot " << id << " not found\n"; return; }
     r->moveTo(dst);
+
+    // for (size_t i = 0; i < count; i++)
+    // {
+    //     /* code */
+    // }
+    
 }
 void ControlUnit::startRobotWork(RobotId id, const std::string& kind) {
     auto r = reg_.getById(id);
@@ -36,7 +42,7 @@ void ControlUnit::stopRobot(RobotId id) {
     r->stop();
 }
 void ControlUnit::printRobots() const {
-    auto printVec = [](const std::vector<std::shared_ptr<IRobot>>& vec) {
+    auto printVec = [](const std::vector<std::shared_ptr<RobotBase>>& vec) {
         for (const auto& r : vec) {
             std::cout << "[CU] Robot ID=" << r->id()
                       << " Type="  << static_cast<int>(r->type())
@@ -52,7 +58,7 @@ void ControlUnit::printRobots() const {
 
 // Creating dirt
 void ControlUnit::seedFrom(const BootstrapFeed& feed) {
-    if (!reg_.initializeGrid(feed.gridWidth, feed.gridHeight, feed.dirtSpots)) {
+    if (!map_.initializeGrid(feed.gridWidth, feed.gridHeight, feed.dirtSpots)) {
         std::cerr << "[CU] failed to initialize grid; aborting scenario.\n";
         return;
     }
@@ -75,7 +81,7 @@ void ControlUnit::run() {
     queuedForVacuum_.clear();
     queuedForWasher_.clear();
 
-    // assinning plan to each Detector
+    // Assigning plan to each Detector
     auto detectorsVec = reg_.getByType(RobotType::DETECTOR);
     if (detectorsVec.empty()) {
         std::cerr << "[CU] no detector robots available\n";
@@ -87,13 +93,13 @@ void ControlUnit::run() {
         return;
     }
 
-    // bookkeeping block that packages each detector state in one "detectors" vector:
+    // Bookkeeping block that packages each detector state in one "detectors" vector:
     struct DetectorState {
-        std::shared_ptr<IRobot> robot;
-        std::vector<Position>   path;
-        std::size_t             nextIndex{0};
-        bool                    started{false};
-        bool                    finished{false};
+        std::shared_ptr<RobotBase> robot;
+        std::vector<Position>      path;
+        std::size_t                nextIndex{0};
+        bool                       started{false};
+        bool                       finished{false};
     };
     std::vector<DetectorState> detectors;
     detectors.reserve(detectorsVec.size());
@@ -147,7 +153,7 @@ void ControlUnit::run() {
             }
 
             // Call vacuum robot if needed
-            if (reg_.hasDirt(cell)) {
+            if (map_.hasDirt(cell)) {
                 if (enqueueVacuumTask(cell)) {
                     std::cout << "[Detector#" << state.robot->name()
                               << "] detected dirt at (" << cell.x << "," << cell.y << ")\n";
@@ -190,7 +196,7 @@ bool ControlUnit::processVacuumQueue() {
     while (!vacuumQueue_.empty()) {
         Position target = vacuumQueue_.front();
         // Check if Dirty
-        if (!reg_.hasDirt(target)) {
+        if (!map_.hasDirt(target)) {
             queuedForVacuum_.erase(cellKey(target));
             vacuumQueue_.pop();
             continue;
@@ -217,7 +223,7 @@ bool ControlUnit::processVacuumQueue() {
         stopRobot(robot->id());
 
         // Add to wash list 
-        if (reg_.markVacuumed(target)) {
+        if (map_.markVacuumed(target)) {
             if (queuedForWasher_.insert(cellKey(target)).second) {
                 washerQueue_.push(target);
             }
@@ -235,7 +241,7 @@ bool ControlUnit::processWasherQueue() {
     while (!washerQueue_.empty()) {
         Position target = washerQueue_.front();
         // Check if Dirty
-        if (!reg_.needsWash(target)) {
+        if (!map_.needsWash(target)) {
             queuedForWasher_.erase(cellKey(target));
             washerQueue_.pop();
             continue;
@@ -261,7 +267,7 @@ bool ControlUnit::processWasherQueue() {
         startRobotWork(robot->id(), "WASH");
         stopRobot(robot->id());
 
-        reg_.markWashed(target);
+        map_.markWashed(target);
         processed = true;
     }
 
@@ -270,7 +276,7 @@ bool ControlUnit::processWasherQueue() {
 
 // Add to vacuum list 
 bool ControlUnit::enqueueVacuumTask(Position pos) {
-    if (!reg_.hasDirt(pos)) {
+    if (!map_.hasDirt(pos)) {
         return false;
     }
     if (queuedForVacuum_.insert(cellKey(pos)).second) {
@@ -280,9 +286,9 @@ bool ControlUnit::enqueueVacuumTask(Position pos) {
     return false;
 }
 
-std::shared_ptr<IRobot> ControlUnit::findNearestIdleRobot(RobotType type, Position target) const {
+std::shared_ptr<RobotBase> ControlUnit::findNearestIdleRobot(RobotType type, Position target) const {
     auto robots = reg_.getByType(type);
-    std::shared_ptr<IRobot> best;
+    std::shared_ptr<RobotBase> best;
     int bestDistance = std::numeric_limits<int>::max();
 
     for (const auto& robot : robots) {
@@ -298,4 +304,3 @@ std::shared_ptr<IRobot> ControlUnit::findNearestIdleRobot(RobotType type, Positi
 
     return best;
 }
-

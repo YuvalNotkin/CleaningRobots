@@ -7,12 +7,13 @@
 #include <memory>
 #include <algorithm>
 
-#include "include/robot.hpp"
-#include "include/robots_impl.hpp"
-#include "include/registry.hpp"
-#include "include/control_unit.hpp"
-#include "include/bootstrap.hpp"
-#include "include/test_scenarios.hpp"
+#include "robot/robot.hpp"
+#include "robot/robots_impl.hpp"
+#include "registry/registry.hpp"
+#include "environment/environment_map.hpp"
+#include "control_unit/control_unit.hpp"
+#include "common/bootstrap.hpp"
+#include "test_scenarios/test_scenarios.hpp"
 
 using std::cout;
 using std::endl;
@@ -58,7 +59,8 @@ static void scenario_typical_small() {
         Position{5, 2}
     });
 
-    ControlUnit cu{registry};
+    EnvironmentMap map;
+    ControlUnit cu{registry, map};
     cu.seedFrom(feed);
     cu.run();
     cout << "[Result] Expected: all 3 spots detected -> vacuumed -> washed in some order.\n";
@@ -71,7 +73,8 @@ static void scenario_no_robots() {
 
     BootstrapFeed feed = makeFeed({ Position{0,0}, Position{2,2} });
 
-    ControlUnit cu{registry};
+    EnvironmentMap map;
+    ControlUnit cu{registry, map};
     cu.seedFrom(feed);
     cu.run();
     cout << "[Result] Expected: graceful handling / warnings; no crash.\n";
@@ -88,7 +91,8 @@ static void scenario_only_detectors() {
 
     BootstrapFeed feed = makeFeed({ Position{2,2}, Position{3,3} });
 
-    ControlUnit cu{registry};
+    EnvironmentMap map;
+    ControlUnit cu{registry, map};
     cu.seedFrom(feed);
     cu.run();
     cout << "[Result] Expected: detection happens; CU should log inability to allocate Vacuum/Washer.\n";
@@ -117,7 +121,8 @@ static void scenario_multi_vacuums_choose_nearest() {
         Position{6, 4}    // mix of distances
     });
 
-    ControlUnit cu{registry};
+    EnvironmentMap map;
+    ControlUnit cu{registry, map};
     cu.seedFrom(feed);
     cu.run();
     cout << "[Result] Expected: CU picks closest Vacuum per spot (by your selection policy).\n";
@@ -136,7 +141,8 @@ static void scenario_huge_coordinates() {
 
     BootstrapFeed feed = makeFeed({ Position{ M-8, M-7 } });
 
-    ControlUnit cu{registry};
+    EnvironmentMap map;
+    ControlUnit cu{registry, map};
     cu.seedFrom(feed);
     cu.run();
     cout << "[Result] Expected: no overflow in distance/logic; normal completion.\n";
@@ -160,7 +166,8 @@ static void scenario_many_spots_stress() {
     }
     BootstrapFeed feed = makeFeed(spots);
 
-    ControlUnit cu{registry};
+    EnvironmentMap map;
+    ControlUnit cu{registry, map};
     cu.seedFrom(feed);
     cu.run();
     cout << "[Result] Expected: completes all tasks; observe runtime/order in logs.\n";
@@ -183,7 +190,8 @@ static void scenario_duplicate_spots() {
         Position{3,3}  // exact duplicate again
     });
 
-    ControlUnit cu{registry};
+    EnvironmentMap map;
+    ControlUnit cu{registry, map};
     cu.seedFrom(feed);
     cu.run();
     cout << "[Result] Expected: either deduplication or repeated handling per policy;\n";

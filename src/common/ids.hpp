@@ -1,6 +1,6 @@
 #pragma once
 #include <atomic>
-#include "types.hpp"
+#include "common/types.hpp"
 
 struct IdGenerator {
     static RobotId next() {

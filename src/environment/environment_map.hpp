@@ -1,30 +1,31 @@
 #pragma once
-#include <memory>
+
 #include <vector>
 
-#include "robot.hpp"
+#include "robot/robot.hpp"
 
-class RobotRegistry {
+enum class CellState { CLEAN = 0, DIRTY = 1, VACUUMED = 2 };
+
+// EnvironmentMap keeps the grid definition and dirt lifecycle state. It
+// replaces the grid responsibility previously owned by RobotRegistry.
+class EnvironmentMap {
 public:
     bool initializeGrid(int width, int height, const std::vector<Position>& dirtSpots);
 
-    bool add(std::shared_ptr<IRobot> r);
-    std::shared_ptr<IRobot> getById(RobotId id) const;
-    std::vector<std::shared_ptr<IRobot>> getByType(RobotType t) const;
-    
+    // Helpers for dirt lifecycle
     bool hasDirt(Position p) const;
     bool markVacuumed(Position p);
     bool needsWash(Position p) const;
     bool markWashed(Position p);
     bool inBounds(Position p) const;
 
+    // Getters
     int width() const { return width_; }
     int height() const { return height_; }
-    const std::vector<std::vector<int>>& grid() const { return grid_; }
+    const std::vector<std::vector<CellState>>& grid() const { return grid_; }
 
 private:
-    std::vector<std::shared_ptr<IRobot>> robots_;
     int width_{0};
     int height_{0};
-    std::vector<std::vector<int>> grid_;
+    std::vector<std::vector<CellState>> grid_;
 };

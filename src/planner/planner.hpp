@@ -2,7 +2,7 @@
 #include <cstddef>
 #include <vector>
 
-#include "robot.hpp"    // Position, RobotType
+#include "robot/robot.hpp"    // Position, RobotType
 
 class Planner {
 public:

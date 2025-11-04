@@ -9,7 +9,11 @@ struct Position {
 };
 
 enum class RobotState {
-    IDLE, MOVING, WORKING, ERROR
+    IDLE,
+    MOVING,
+    ARRIVED,
+    WORKING,
+    ERROR
 };
 
 enum class RobotType  {

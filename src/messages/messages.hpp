@@ -1,6 +1,6 @@
 #pragma once
 #include <string>
-#include "types.hpp"   // RobotId, Position, RobotType, RobotState
+#include "common/types.hpp"   // RobotId, Position, RobotType, RobotState
 
 // -------------------------
 // Events (robot → control)

@@ -1,0 +1,29 @@
+#pragma once
+#include <utility>
+#include "common/types.hpp"
+#include "common/ids.hpp"
+
+class RobotBase {
+public:
+    virtual ~RobotBase() = default;
+
+    RobotId id() const { return id_; }
+    RobotName name() const { return name_; }
+    RobotType type() const { return type_; }
+    RobotState state() const { return state_; }
+    Position position() const { return pos_; }
+
+    virtual void moveTo(Position dst) = 0;
+    virtual void startWork(const std::string& kind) = 0;
+    virtual void stop() = 0;
+
+protected:
+    RobotBase(RobotName name, RobotType type, Position start = {})
+        : id_(IdGenerator::next()), name_(std::move(name)), type_(type), pos_(start) {}
+
+    RobotId id_;
+    RobotName name_;
+    RobotType type_;
+    RobotState state_{RobotState::IDLE};
+    Position pos_{};
+};

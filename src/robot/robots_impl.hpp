@@ -1,7 +1,10 @@
 #pragma once
-#include "robot.hpp"
+#include "robot/robot.hpp"
 
-class DetectorRobot : public RobotBase {
+// Concrete robot specializations by role.
+
+// Detector robot scans rooms for dirt.
+class DetectorRobot final : public RobotBase {
 public:
     DetectorRobot(RobotName name, Position start = {})
         : RobotBase(std::move(name), RobotType::DETECTOR, start) {}
@@ -10,7 +13,8 @@ public:
     void stop() override;
 };
 
-class VacuumRobot : public RobotBase {
+// Vacuum robot collects dirt once located.
+class VacuumRobot final : public RobotBase {
 public:
     VacuumRobot(RobotName name, Position start = {})
         : RobotBase(std::move(name), RobotType::VACUUM, start) {}
@@ -19,7 +23,8 @@ public:
     void stop() override;
 };
 
-class WasherRobot : public RobotBase {
+// Washer robot finishes the cleanup pass.
+class WasherRobot final : public RobotBase {
 public:
     WasherRobot(RobotName name, Position start = {})
         : RobotBase(std::move(name), RobotType::WASHER, start) {}
