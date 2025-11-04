@@ -32,3 +32,13 @@ std::vector<std::shared_ptr<RobotBase>> RobotRegistry::getByType(RobotType t) co
 
     return it->second;
 }
+
+std::vector<std::shared_ptr<RobotBase>> RobotRegistry::getAll() const {
+    std::vector<std::shared_ptr<RobotBase>> result;
+    result.reserve(robots_by_id_.size());
+    for (const auto& [id, robot] : robots_by_id_) {
+        (void)id;
+        result.push_back(robot);
+    }
+    return result;
+}

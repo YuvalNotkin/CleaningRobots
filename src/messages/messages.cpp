@@ -8,6 +8,10 @@ static std::string posStr(Position p) {
     return os.str();
 }
 
+
+// Only toString functions below
+
+
 // --------- Events ---------
 
 std::string toString(const DetectionEvent& e) {

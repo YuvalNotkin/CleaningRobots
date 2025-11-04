@@ -7,8 +7,9 @@
 #include <memory>
 #include <algorithm>
 
-#include "robot/robot.hpp"
-#include "robot/robots_impl.hpp"
+#include "robot/detector_robot.hpp"
+#include "robot/vacuum_robot.hpp"
+#include "robot/washer_robot.hpp"
 #include "registry/registry.hpp"
 #include "environment/environment_map.hpp"
 #include "control_unit/control_unit.hpp"

@@ -8,23 +8,23 @@
 
 // A detector reports that it found a new target location.
 struct DetectionEvent {
-    RobotId   from;        // detector robot ID
-    Position  location;    // where the detection happened
+    RobotId   from{0};     // detector robot ID
+    Position  location{};  // where the detection happened
 };
 
 // Any robot reports its current status (used for monitoring and updates).
 struct StatusEvent {
-    RobotId     from;      // sender robot ID
-    RobotType   type;      // sender type
-    RobotState  state;     // IDLE / MOVING / WORKING / ERROR
-    Position    position;  // current position
+    RobotId     from{0};              // sender robot ID
+    RobotType   type{RobotType::DETECTOR}; // sender type
+    RobotState  state{RobotState::IDLE};   // IDLE / MOVING / WORKING / ERROR
+    Position    position{};           // current position
 };
 
 // A robot notifies that it has finished its work (vacuuming, washing, etc.).
 struct WorkCompletedEvent {
-    RobotId      from;         // sender robot ID
+    RobotId      from{0};      // sender robot ID
     std::string  workKind;     // "DETECT" / "VACUUM" / "WASH"
-    Position     where;        // location of the completed work
+    Position     where{};      // location of the completed work
     bool         success{true}; // true if finished successfully
 };
 
@@ -34,19 +34,19 @@ struct WorkCompletedEvent {
 
 // Order a robot to move somewhere.
 struct MoveCommand {
-    RobotId  to;          // target robot ID
-    Position dst;         // destination
+    RobotId  to{0};       // target robot ID
+    Position dst{};       // destination
 };
 
 // Order a robot to start a specific kind of work.
 struct StartWorkCommand {
-    RobotId     to;       // target robot ID
+    RobotId     to{0};    // target robot ID
     std::string kind;     // "DETECT" / "VACUUM" / "WASH"
 };
 
 // Order a robot to stop its current work.
 struct StopCommand {
-    RobotId to;           // target robot ID
+    RobotId to{0};        // target robot ID
 };
 
 // Optional time broadcast — kept for future extension but unused now.

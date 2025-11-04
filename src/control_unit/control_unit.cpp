@@ -4,6 +4,8 @@
 #include <set>
 #include <utility>
 #include <vector>
+#include <variant>
+#include <type_traits>
 #include "control_unit/control_unit.hpp"
 
 namespace {
@@ -19,28 +21,92 @@ int distance(Position a, Position b) {
 }
 }
 
-// ---- simple helpers ----
-void ControlUnit::moveRobot(RobotId id, Position dst) {
-    auto r = reg_.getById(id);
-    if (!r) { std::cerr << "[CU] robot " << id << " not found\n"; return; }
-    r->moveTo(dst);
+// ---- command helpers ----
+void ControlUnit::sendMoveCmd(RobotId id, Position dst) {
+    MoveCommand cmd;
+    cmd.to = id;
+    cmd.dst = dst;
+    bus_.broadcast(std::move(cmd));
+}
 
-    // for (size_t i = 0; i < count; i++)
-    // {
-    //     /* code */
-    // }
-    
+void ControlUnit::sendStartRobotWorkCmd(RobotId id, const std::string& kind) {
+    StartWorkCommand cmd;
+    cmd.to = id;
+    cmd.kind = kind;
+    bus_.broadcast(std::move(cmd));
 }
-void ControlUnit::startRobotWork(RobotId id, const std::string& kind) {
-    auto r = reg_.getById(id);
-    if (!r) { std::cerr << "[CU] robot " << id << " not found\n"; return; }
-    r->startWork(kind);
+
+void ControlUnit::sendStopRobotCmd(RobotId id) {
+    StopCommand cmd;
+    cmd.to = id;
+    bus_.broadcast(std::move(cmd));
 }
-void ControlUnit::stopRobot(RobotId id) {
-    auto r = reg_.getById(id);
-    if (!r) { std::cerr << "[CU] robot " << id << " not found\n"; return; }
-    r->stop();
+
+void ControlUnit::drainEvents() {
+    Bus::EventVariant event;
+    while (bus_.poll(event)) {
+        handleEvent(event);
+    }
 }
+
+void ControlUnit::handleEvent(const Bus::EventVariant& event) {
+    std::visit([this](const auto& ev) {
+        using EventType = std::decay_t<decltype(ev)>;
+        if constexpr (std::is_same_v<EventType, StatusEvent>) {
+            handleStatusEvent(ev);
+        } else if constexpr (std::is_same_v<EventType, WorkCompletedEvent>) {
+            handleWorkCompletedEvent(ev);
+        } else if constexpr (std::is_same_v<EventType, DetectionEvent>) {
+            // Detection events can be handled later if needed.
+            (void)ev;
+        }
+    }, event);
+}
+
+void ControlUnit::handleStatusEvent(const StatusEvent& event) {
+    if (event.state != RobotState::ARRIVED) {
+        return;
+    }
+
+    auto it = pendingTasks_.find(event.from);
+    if (it == pendingTasks_.end()) {
+        return;
+    }
+
+    const PendingTask& task = it->second;
+    std::cout << "[CU] Robot " << event.from << " arrived at ("
+              << event.position.x << "," << event.position.y
+              << ") -> start " << task.kind << "\n";
+    sendStartRobotWorkCmd(event.from, task.kind);
+}
+
+void ControlUnit::handleWorkCompletedEvent(const WorkCompletedEvent& event) {
+    std::cout << "[CU] Robot " << event.from << " completed "
+              << event.workKind << " at ("
+              << event.where.x << "," << event.where.y << ")"
+              << (event.success ? "" : " with failure")
+              << "\n";
+
+    auto taskIt = pendingTasks_.find(event.from);
+    if (taskIt != pendingTasks_.end()) {
+        pendingTasks_.erase(taskIt);
+    }
+
+    if (!event.success) {
+        return;
+    }
+
+    if (event.workKind == "VACUUM") {
+        if (map_.markVacuumed(event.where)) {
+            if (queuedForWasher_.insert(cellKey(event.where)).second) {
+                washerQueue_.push(event.where);
+            }
+        }
+    } else if (event.workKind == "WASH") {
+        map_.markWashed(event.where);
+    }
+}
+
 void ControlUnit::printRobots() const {
     auto printVec = [](const std::vector<std::shared_ptr<RobotBase>>& vec) {
         for (const auto& r : vec) {
@@ -80,6 +146,8 @@ void ControlUnit::run() {
     washerQueue_ = std::queue<Position>{};
     queuedForVacuum_.clear();
     queuedForWasher_.clear();
+    pendingTasks_.clear();
+    drainEvents();
 
     // Assigning plan to each Detector
     auto detectorsVec = reg_.getByType(RobotType::DETECTOR);
@@ -136,7 +204,8 @@ void ControlUnit::run() {
             // if Path ended
             if (state.nextIndex >= state.path.size()) {
                 if (!samePosition(state.robot->position(), start)) {
-                    moveRobot(state.robot->id(), start);
+                    sendMoveCmd(state.robot->id(), start);
+                    drainEvents();
                     madeProgress = true;
                 }
                 state.finished = true;
@@ -149,7 +218,8 @@ void ControlUnit::run() {
 
             // Move to position
             if (!samePosition(state.robot->position(), cell)) {
-                moveRobot(state.robot->id(), cell);
+                sendMoveCmd(state.robot->id(), cell);
+                drainEvents();
             }
 
             // Call vacuum robot if needed
@@ -211,23 +281,9 @@ bool ControlUnit::processVacuumQueue() {
         vacuumQueue_.pop();
         queuedForVacuum_.erase(cellKey(target));
 
-        // Move to target
-        if (!samePosition(robot->position(), target)) {
-            moveRobot(robot->id(), target);
-        }
-
-        // Vacuum
-        std::cout << "[Vacuum#" << robot->name() << "] vacuuming ("
-                  << target.x << "," << target.y << ")\n";
-        startRobotWork(robot->id(), "VACUUM");
-        stopRobot(robot->id());
-
-        // Add to wash list 
-        if (map_.markVacuumed(target)) {
-            if (queuedForWasher_.insert(cellKey(target)).second) {
-                washerQueue_.push(target);
-            }
-        }
+        pendingTasks_[robot->id()] = PendingTask{"VACUUM", target};
+        sendMoveCmd(robot->id(), target);
+        drainEvents();
 
         processed = true;
     }
@@ -256,18 +312,11 @@ bool ControlUnit::processWasherQueue() {
         washerQueue_.pop();
         queuedForWasher_.erase(cellKey(target));
 
-        // Move to target
-        if (!samePosition(robot->position(), target)) {
-            moveRobot(robot->id(), target);
-        }
+        pendingTasks_[robot->id()] = PendingTask{"WASH", target};
 
-        // Wash
-        std::cout << "[Washer#" << robot->name() << "] washing ("
-                  << target.x << "," << target.y << ")\n";
-        startRobotWork(robot->id(), "WASH");
-        stopRobot(robot->id());
+        sendMoveCmd(robot->id(), target);
+        drainEvents();
 
-        map_.markWashed(target);
         processed = true;
     }
 
@@ -293,6 +342,9 @@ std::shared_ptr<RobotBase> ControlUnit::findNearestIdleRobot(RobotType type, Pos
 
     for (const auto& robot : robots) {
         if (robot->state() != RobotState::IDLE) {
+            continue;
+        }
+        if (pendingTasks_.count(robot->id()) > 0) {
             continue;
         }
         const int dist = distance(robot->position(), target);
