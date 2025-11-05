@@ -1,0 +1,251 @@
+@startuml
+skinparam classAttributeIconSize 0
+skinparam classFontStyle plain
+hide stereotype
+
+package "Common" {
+    class RobotId <<typedef>>
+    class RobotName <<typedef>>
+
+    class Position {
+        +x: int
+        +y: int
+    }
+
+    enum RobotState {
+        IDLE
+        MOVING
+        ARRIVED
+        WORKING
+        ERROR
+    }
+
+    enum RobotType {
+        DETECTOR
+        VACUUM
+        WASHER
+    }
+
+    class IdGenerator {
+        +static RobotId next(): RobotId
+    }
+}
+
+package "Messaging" {
+    class DetectionEvent {
+        +from: RobotId
+        +location: Position
+    }
+
+    class StatusEvent {
+        +from: RobotId
+        +type: RobotType
+        +state: RobotState
+        +position: Position
+    }
+
+    class WorkCompletedEvent {
+        +from: RobotId
+        +workKind: std::string
+        +where: Position
+        +success: bool
+    }
+
+    class MoveCommand {
+        +to: RobotId
+        +dst: Position
+    }
+
+    class StartWorkCommand {
+        +to: RobotId
+        +kind: std::string
+    }
+
+    class StopCommand {
+        +to: RobotId
+    }
+
+    class TickCommand {
+        +now: unsigned long long
+    }
+
+    class EventVariant <<typedef>>
+}
+
+package "Robots" {
+    abstract class RobotBase {
+        +~RobotBase()
+        +id() const: RobotId
+        +name() const: RobotName
+        +type() const: RobotType
+        +state() const: RobotState
+        +position() const: Position
+        +moveTo(dst: Position)
+        +startWork(kind: std::string)
+        +stop()
+        +attachBus(bus: Bus*)
+        +handle(cmd: MoveCommand)
+        +handle(cmd: StartWorkCommand)
+        +handle(cmd: StopCommand)
+        --
+        #RobotBase(name: RobotName, type: RobotType, start: Position)
+        #publishStatus()
+        #publishWorkCompleted(kind: std::string, success: bool)
+    }
+
+    class DetectorRobot {
+        +DetectorRobot(name: RobotName, start: Position)
+        +moveTo(dst: Position)
+        +startWork(kind: std::string)
+        +stop()
+    }
+
+    class VacuumRobot {
+        +VacuumRobot(name: RobotName, start: Position)
+        +moveTo(dst: Position)
+        +startWork(kind: std::string)
+        +stop()
+    }
+
+    class WasherRobot {
+        +WasherRobot(name: RobotName, start: Position)
+        +moveTo(dst: Position)
+        +startWork(kind: std::string)
+        +stop()
+    }
+}
+
+package "Infrastructure" {
+    class RobotRegistry {
+        +add(r: std::shared_ptr<RobotBase>): bool
+        +getById(id: RobotId) const: std::shared_ptr<RobotBase>
+        +getByType(t: RobotType) const: std::vector<std::shared_ptr<RobotBase>>
+        +getAll() const: std::vector<std::shared_ptr<RobotBase>>
+    }
+
+    class Bus {
+        +Bus(registry: RobotRegistry&)
+        +broadcast(cmd: MoveCommand)
+        +broadcast(cmd: StartWorkCommand)
+        +broadcast(cmd: StopCommand)
+        +publish(event: DetectionEvent)
+        +publish(event: StatusEvent)
+        +publish(event: WorkCompletedEvent)
+        +poll(out: EventVariant&): bool
+        --
+        -broadcastImpl(cmd: MoveCommand)
+        -broadcastImpl(cmd: StartWorkCommand)
+        -broadcastImpl(cmd: StopCommand)
+        -publishImpl(event: DetectionEvent)
+        -publishImpl(event: StatusEvent)
+        -publishImpl(event: WorkCompletedEvent)
+    }
+}
+
+package "Environment" {
+    class EnvironmentMap {
+        +initializeGrid(width: int, height: int, dirtSpots: std::vector<Position>): bool
+        +hasDirt(p: Position) const: bool
+        +markVacuumed(p: Position): bool
+        +needsWash(p: Position) const: bool
+        +markWashed(p: Position): bool
+        +inBounds(p: Position) const: bool
+        +width() const: int
+        +height() const: int
+        +grid() const: std::vector<std::vector<CellState>>
+    }
+
+    enum CellState {
+        CLEAN
+        DIRTY
+        VACUUMED
+    }
+}
+
+package "Planning" {
+    class Planner {
+        +configureGrid(width: int, height: int)
+        +isConfigured() const: bool
+        +width() const: int
+        +height() const: int
+        +buildScanPlans(detectorCount: std::size_t) const: std::vector<std::vector<Position>>
+    }
+}
+
+package "Control" {
+    class BootstrapFeed {
+        +gridWidth: int
+        +gridHeight: int
+        +dirtSpots: std::vector<Position>
+    }
+
+    class ControlUnit {
+        +ControlUnit(reg: RobotRegistry&, map: EnvironmentMap&)
+        +printRobots() const
+        +seedFrom(feed: BootstrapFeed)
+        +run()
+        --
+        -sendMoveCmd(id: RobotId, dst: Position)
+        -sendStartRobotWorkCmd(id: RobotId, kind: std::string)
+        -sendStopRobotCmd(id: RobotId)
+        -drainEvents()
+        -handleEvent(event: Bus::EventVariant)
+        -handleStatusEvent(event: StatusEvent)
+        -handleWorkCompletedEvent(event: WorkCompletedEvent)
+        -processVacuumQueue(): bool
+        -processWasherQueue(): bool
+        -enqueueVacuumTask(pos: Position): bool
+        -findNearestIdleRobot(type: RobotType, target: Position) const: std::shared_ptr<RobotBase>
+    }
+}
+
+RobotBase <|-- DetectorRobot
+RobotBase <|-- VacuumRobot
+RobotBase <|-- WasherRobot
+
+RobotBase --> Bus : bus_
+RobotBase ..> MoveCommand
+RobotBase ..> StartWorkCommand
+RobotBase ..> StopCommand
+RobotBase ..> StatusEvent
+RobotBase ..> WorkCompletedEvent
+RobotBase ..> IdGenerator
+
+Bus --> RobotRegistry : registry_
+Bus ..> RobotBase : broadcastImpl()
+Bus ..> DetectionEvent
+Bus ..> StatusEvent
+Bus ..> WorkCompletedEvent
+
+RobotRegistry --> RobotBase : manages
+
+ControlUnit --> RobotRegistry : reg_
+ControlUnit --> EnvironmentMap : map_
+ControlUnit --> Planner : planner_
+ControlUnit --> Bus : bus_
+ControlUnit ..> MoveCommand
+ControlUnit ..> StartWorkCommand
+ControlUnit ..> StopCommand
+ControlUnit ..> DetectionEvent
+ControlUnit ..> StatusEvent
+ControlUnit ..> WorkCompletedEvent
+ControlUnit ..> BootstrapFeed
+
+Planner ..> Position
+EnvironmentMap ..> Position
+EnvironmentMap ..> CellState
+
+BootstrapFeed ..> Position
+
+DetectionEvent --> Position
+StatusEvent --> Position
+StatusEvent --> RobotState
+StatusEvent --> RobotType
+WorkCompletedEvent --> Position
+
+MoveCommand --> Position
+
+IdGenerator ..> RobotId
+Bus ..> EventVariant
+
+@enduml

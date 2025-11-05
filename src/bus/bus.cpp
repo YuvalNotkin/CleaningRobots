@@ -2,8 +2,8 @@
 
 #include "robot/robot.hpp"
 
-Bus::Bus(RobotRegistry& registry)
-    : registry_(registry) {
+// Initialize the bus with a reference to the robot registry, attach to all registered robots
+Bus::Bus(RobotRegistry& registry) : registry_(registry) {
     auto robots = registry_.getAll();
     for (const auto& robot : robots) {
         if (robot) {
@@ -11,6 +11,8 @@ Bus::Bus(RobotRegistry& registry)
         }
     }
 }
+
+/////////// command broadcasting - called by the control unit to direct robot actions
 
 void Bus::broadcast(MoveCommand cmd) {
     broadcastImpl(cmd);
@@ -24,6 +26,8 @@ void Bus::broadcast(StopCommand cmd) {
     broadcastImpl(cmd);
 }
 
+/////////// event publishing - called by robots to report happenings
+
 void Bus::publish(DetectionEvent event) {
     publishImpl(event);
 }
@@ -36,7 +40,8 @@ void Bus::publish(WorkCompletedEvent event) {
     publishImpl(event);
 }
 
-bool Bus::poll(EventVariant& out) {
+
+bool Bus::poll(EventVariant& out) {     // out is reference, fill it with next event only if any
     if (events_.empty()) {
         return false;
     }
@@ -45,8 +50,8 @@ bool Bus::poll(EventVariant& out) {
     return true;
 }
 
-template<typename Command>
-void Bus::broadcastImpl(Command& cmd) {
+template<typename Command>  
+void Bus::broadcastImpl(Command& cmd) { // send command to all robots, let them decide if relevant
     auto robots = registry_.getAll();
     for (const auto& robot : robots) {
         if (robot) {
@@ -56,11 +61,12 @@ void Bus::broadcastImpl(Command& cmd) {
 }
 
 template<typename Event>
-void Bus::publishImpl(Event& event) {
+void Bus::publishImpl(Event& event) { // add event to the queue for later processing by the CU
     events_.push(event);
 }
 
-// Explicit template instantiations to keep definitions in this TU.
+// Force template code generation for these types in this .cpp file
+// (avoids duplicate instantiations across translation units)
 template void Bus::broadcastImpl(MoveCommand& cmd);
 template void Bus::broadcastImpl(StartWorkCommand& cmd);
 template void Bus::broadcastImpl(StopCommand& cmd);

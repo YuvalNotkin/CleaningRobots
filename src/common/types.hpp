@@ -13,7 +13,7 @@ enum class RobotState {
     MOVING,
     ARRIVED,
     WORKING,
-    ERROR
+    ERROR // Not used currently
 };
 
 enum class RobotType  {

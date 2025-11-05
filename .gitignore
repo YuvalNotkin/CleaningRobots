@@ -14,4 +14,4 @@ bin/
 
 # misc
 .DS_Store
-
+*.zip

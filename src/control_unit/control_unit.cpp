@@ -8,6 +8,7 @@
 #include <type_traits>
 #include "control_unit/control_unit.hpp"
 
+// ---- helper functions inside anonymous namespace ----
 namespace {
 using CellKey = std::pair<int, int>;
 CellKey cellKey(Position p) {
@@ -16,16 +17,18 @@ CellKey cellKey(Position p) {
 bool samePosition(Position a, Position b) {
     return a.x == b.x && a.y == b.y;
 }
+// can be optimized later if needed
 int distance(Position a, Position b) {
     return std::abs(a.x - b.x) + std::abs(a.y - b.y);
 }
 }
 
-// ---- command helpers ----
+// ---- command helpers - create and send commands via the bus ----
+
 void ControlUnit::sendMoveCmd(RobotId id, Position dst) {
     MoveCommand cmd;
     cmd.to = id;
-    cmd.dst = dst;
+    cmd.position = dst;
     bus_.broadcast(std::move(cmd));
 }
 
@@ -42,6 +45,8 @@ void ControlUnit::sendStopRobotCmd(RobotId id) {
     bus_.broadcast(std::move(cmd));
 }
 
+// ---- event processing ----
+
 void ControlUnit::drainEvents() {
     Bus::EventVariant event;
     while (bus_.poll(event)) {
@@ -49,7 +54,11 @@ void ControlUnit::drainEvents() {
     }
 }
 
+// ---- event handling helpers ----
+
+// dispatch event to the appropriate handler based on its type
 void ControlUnit::handleEvent(const Bus::EventVariant& event) {
+    // lambda visitor to process each event type
     std::visit([this](const auto& ev) {
         using EventType = std::decay_t<decltype(ev)>;
         if constexpr (std::is_same_v<EventType, StatusEvent>) {
@@ -57,22 +66,26 @@ void ControlUnit::handleEvent(const Bus::EventVariant& event) {
         } else if constexpr (std::is_same_v<EventType, WorkCompletedEvent>) {
             handleWorkCompletedEvent(ev);
         } else if constexpr (std::is_same_v<EventType, DetectionEvent>) {
-            // Detection events can be handled later if needed.
+            // Detection events not used currently, the detection simulation is implicit in the CU logic for now
             (void)ev;
         }
     }, event);
 }
 
+// handle status event - currently only process ARRIVED state
 void ControlUnit::handleStatusEvent(const StatusEvent& event) {
+    // only care about ARRIVED state for now
     if (event.state != RobotState::ARRIVED) {
         return;
     }
 
+    // find pending task for this robot
     auto it = pendingTasks_.find(event.from);
     if (it == pendingTasks_.end()) {
         return;
     }
 
+    // start the work
     const PendingTask& task = it->second;
     std::cout << "[CU] Robot " << event.from << " arrived at ("
               << event.position.x << "," << event.position.y
@@ -80,32 +93,38 @@ void ControlUnit::handleStatusEvent(const StatusEvent& event) {
     sendStartRobotWorkCmd(event.from, task.kind);
 }
 
+// handle work completed event
 void ControlUnit::handleWorkCompletedEvent(const WorkCompletedEvent& event) {
     std::cout << "[CU] Robot " << event.from << " completed "
               << event.workKind << " at ("
-              << event.where.x << "," << event.where.y << ")"
+              << event.position.x << "," << event.position.y << ")"
               << (event.success ? "" : " with failure")
               << "\n";
 
+    // remove from pending tasks
     auto taskIt = pendingTasks_.find(event.from);
     if (taskIt != pendingTasks_.end()) {
         pendingTasks_.erase(taskIt);
     }
 
+    // check success
     if (!event.success) {
         return;
     }
 
+    // post-process based on work kind
     if (event.workKind == "VACUUM") {
-        if (map_.markVacuumed(event.where)) {
-            if (queuedForWasher_.insert(cellKey(event.where)).second) {
-                washerQueue_.push(event.where);
+        if (map_.markVacuumed(event.position)) {
+            if (queuedForWasher_.insert(cellKey(event.position)).second) {
+                washerQueue_.push(event.position);
             }
         }
     } else if (event.workKind == "WASH") {
-        map_.markWashed(event.where);
+        map_.markWashed(event.position);
     }
 }
+
+// ---- utility functions, not in use yet ----
 
 void ControlUnit::printRobots() const {
     auto printVec = [](const std::vector<std::shared_ptr<RobotBase>>& vec) {
@@ -122,7 +141,7 @@ void ControlUnit::printRobots() const {
 
 ///////////////////////////////////////// MAIN SIMULATION ////////////////////////////////////////////////////////
 
-// Creating dirt
+// create environment map (size and dirt spots) and configure planner
 void ControlUnit::seedFrom(const BootstrapFeed& feed) {
     if (!map_.initializeGrid(feed.gridWidth, feed.gridHeight, feed.dirtSpots)) {
         std::cerr << "[CU] failed to initialize grid; aborting scenario.\n";
@@ -137,11 +156,13 @@ void ControlUnit::run() {
 
     //////////////////// Initializing part:
 
+    // check planner configured
     if (!planner_.isConfigured()) {
         std::cerr << "[CU] planner not configured. Did you call seedFrom()?\n";
         return;
     }
 
+    // Resetting queues and bookkeeping
     vacuumQueue_ = std::queue<Position>{};
     washerQueue_ = std::queue<Position>{};
     queuedForVacuum_.clear();
@@ -183,24 +204,23 @@ void ControlUnit::run() {
 
     const Position start = {0, 0};
 
-    //////////////////// Advancing each Detector one step according to the assigned path (Lambda):
-
+    // Advancing each Detector one step according to the assigned path (Lambda):
     auto processDetectors = [&]() -> bool {
         bool madeProgress = false;
 
+        // process each detector state
         for (std::size_t i = 0; i < detectors.size(); ++i) {
             DetectorState& state = detectors[i];
+            // if not started yet
             if (!state.started) {
                 std::cout << "[Detector#" << state.robot->name() << "] start scan\n";
                 state.started = true;
                 madeProgress = true;
             }
-
             // if finished already
             if (state.finished) {
                 continue;
             }
-
             // if Path ended
             if (state.nextIndex >= state.path.size()) {
                 if (!samePosition(state.robot->position(), start)) {
@@ -211,8 +231,7 @@ void ControlUnit::run() {
                 state.finished = true;
                 continue;
             }
-
-            // The advancing
+            // get next cell in path
             Position cell = state.path[state.nextIndex++];
             madeProgress = true;
 
@@ -237,10 +256,12 @@ void ControlUnit::run() {
     //////////////////// The Main Loop:
 
     while (true) {
+        // Each iteration tries to advance detectors and assign tasks to vacuums and washers
         bool detectorsProgress = processDetectors();
         bool vacuumProgress = processVacuumQueue();
         bool washerProgress = processWasherQueue();
 
+        // check if all detectors are finished
         bool allDetectorsFinished = true;
         for (const auto& state : detectors) {
             if (!state.finished) {
@@ -249,10 +270,12 @@ void ControlUnit::run() {
             }
         }
 
+        // termination condition: all detectors finished and no pending tasks
         if (allDetectorsFinished && vacuumQueue_.empty() && washerQueue_.empty()) {
             break;
         }
 
+        // safety check: if no progress made in this iteration, break to avoid infinite loop
         if (!detectorsProgress && !vacuumProgress && !washerProgress) {
             std::cerr << "[CU] run loop made no progress; aborting.\n";
             break;
@@ -262,10 +285,10 @@ void ControlUnit::run() {
 
 bool ControlUnit::processVacuumQueue() {
     bool processed = false;
-
+    // Try to assign tasks to idle vacuum robots
     while (!vacuumQueue_.empty()) {
         Position target = vacuumQueue_.front();
-        // Check if Dirty
+        // Check if Dirty - maybe already vacuumed
         if (!map_.hasDirt(target)) {
             queuedForVacuum_.erase(cellKey(target));
             vacuumQueue_.pop();
@@ -277,10 +300,10 @@ bool ControlUnit::processVacuumQueue() {
         if (!robot) {
             break;
         }
-
+        // Remove from queue
         vacuumQueue_.pop();
         queuedForVacuum_.erase(cellKey(target));
-
+        // Assign task and send command
         pendingTasks_[robot->id()] = PendingTask{"VACUUM", target};
         sendMoveCmd(robot->id(), target);
         drainEvents();
@@ -296,7 +319,7 @@ bool ControlUnit::processWasherQueue() {
 
     while (!washerQueue_.empty()) {
         Position target = washerQueue_.front();
-        // Check if Dirty
+        // Check if Dirty - maybe already washed
         if (!map_.needsWash(target)) {
             queuedForWasher_.erase(cellKey(target));
             washerQueue_.pop();
@@ -308,12 +331,11 @@ bool ControlUnit::processWasherQueue() {
         if (!robot) {
             break;
         }
-
+        // Remove from queue
         washerQueue_.pop();
         queuedForWasher_.erase(cellKey(target));
-
+        // Assign task and send command
         pendingTasks_[robot->id()] = PendingTask{"WASH", target};
-
         sendMoveCmd(robot->id(), target);
         drainEvents();
 
@@ -323,7 +345,7 @@ bool ControlUnit::processWasherQueue() {
     return processed;
 }
 
-// Add to vacuum list 
+// enqueue a CELL for vacuuming to the vacuumQueue_ 
 bool ControlUnit::enqueueVacuumTask(Position pos) {
     if (!map_.hasDirt(pos)) {
         return false;
@@ -335,11 +357,12 @@ bool ControlUnit::enqueueVacuumTask(Position pos) {
     return false;
 }
 
+// find the nearest idle robot of the given type to the target position
 std::shared_ptr<RobotBase> ControlUnit::findNearestIdleRobot(RobotType type, Position target) const {
     auto robots = reg_.getByType(type);
     std::shared_ptr<RobotBase> best;
     int bestDistance = std::numeric_limits<int>::max();
-
+    // search among idle robots without pending tasks - use distance method to find the nearest one
     for (const auto& robot : robots) {
         if (robot->state() != RobotState::IDLE) {
             continue;

@@ -10,7 +10,7 @@ void RobotBase::handle(const MoveCommand& cmd) {
     if (cmd.to != id_) {
         return;
     }
-    moveTo(cmd.dst);
+    moveTo(cmd.position);
 }
 
 void RobotBase::handle(const StartWorkCommand& cmd) {
@@ -47,7 +47,7 @@ void RobotBase::publishWorkCompleted(const std::string& kind, bool success) {
     WorkCompletedEvent event;
     event.from = id_;
     event.workKind = kind;
-    event.where = pos_;
+    event.position = pos_;
     event.success = success;
     bus_->publish(std::move(event));
     publishStatus();

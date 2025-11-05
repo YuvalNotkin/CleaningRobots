@@ -17,7 +17,7 @@ static std::string posStr(Position p) {
 std::string toString(const DetectionEvent& e) {
     std::ostringstream os;
     os << "[DetectionEvent] from=" << e.from
-       << " loc=" << posStr(e.location);
+       << " position=" << posStr(e.position);
     return os.str();
 }
 
@@ -26,7 +26,7 @@ std::string toString(const StatusEvent& e) {
     os << "[StatusEvent] from=" << e.from
        << " type=" << static_cast<int>(e.type)
        << " state=" << static_cast<int>(e.state)
-       << " pos=" << posStr(e.position);
+       << " position=" << posStr(e.position);
     return os.str();
 }
 
@@ -34,7 +34,7 @@ std::string toString(const WorkCompletedEvent& e) {
     std::ostringstream os;
     os << "[WorkCompletedEvent] from=" << e.from
        << " kind=" << e.workKind
-       << " where=" << posStr(e.where)
+       << " position=" << posStr(e.position)
        << " ok=" << (e.success ? "true" : "false");
     return os.str();
 }
@@ -44,7 +44,7 @@ std::string toString(const WorkCompletedEvent& e) {
 std::string toString(const MoveCommand& c) {
     std::ostringstream os;
     os << "[MoveCommand] to=" << c.to
-       << " dst=" << posStr(c.dst);
+       << " position=" << posStr(c.position);
     return os.str();
 }
 

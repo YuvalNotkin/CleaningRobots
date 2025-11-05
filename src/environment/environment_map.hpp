@@ -6,8 +6,7 @@
 
 enum class CellState { CLEAN = 0, DIRTY = 1, VACUUMED = 2 };
 
-// EnvironmentMap keeps the grid definition and dirt lifecycle state. It
-// replaces the grid responsibility previously owned by RobotRegistry.
+// EnvironmentMap keeps the grid definition and dirt lifecycle state.
 class EnvironmentMap {
 public:
     bool initializeGrid(int width, int height, const std::vector<Position>& dirtSpots);
